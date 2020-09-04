@@ -1514,13 +1514,8 @@ export interface AuthenticationMain {
     $unregisterAuthenticationProvider(id: string): void;
     $getProviderIds(): Promise<string[]>;
     $updateSessions(providerId: string, event: AuthenticationSessionsChangeEvent): void;
-    $selectSession(providerId: string, providerName: string, extensionId: string, extensionName: string,
-                   potentialSessions: AuthenticationSession[], scopes: string[], clearSessionPreference: boolean): Promise<AuthenticationSession>;
-    $getSessionsPrompt(providerId: string, accountName: string, providerName: string, extensionId: string, extensionName: string): Promise<boolean>;
-    $loginPrompt(providerName: string, extensionName: string): Promise<boolean>;
-    $setTrustedExtensionAndAccountPreference(providerId: string, accountName: string, extensionId: string, extensionName: string, sessionId: string): Promise<void>;
-    $requestNewSession(providerId: string, scopes: string[], extensionId: string, extensionName: string): Promise<void>;
-
+    $getSession(providerId: string, scopes: string[], extensionId: string, extensionName: string,
+                options: { createIfNone?: boolean, clearSessionPreference?: boolean }): Promise<theia.AuthenticationSession | undefined>;
     $logout(providerId: string, sessionId: string): Promise<void>;
 }
 

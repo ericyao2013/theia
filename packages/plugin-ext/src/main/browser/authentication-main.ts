@@ -80,12 +80,49 @@ export class AuthenticationMainImpl implements AuthenticationMain {
         return this.authenticationService.logout(providerId, sessionId);
     }
 
-    async $requestNewSession(providerId: string, scopes: string[], extensionId: string, extensionName: string): Promise<void> {
+    protected async requestNewSession(providerId: string, scopes: string[], extensionId: string, extensionName: string): Promise<void> {
         return this.authenticationService.requestNewSession(providerId, scopes, extensionId, extensionName);
     }
 
-    async $selectSession(providerId: string, providerName: string, extensionId: string, extensionName: string,
-                         potentialSessions: AuthenticationSession[], scopes: string[], clearSessionPreference: boolean): Promise<AuthenticationSession> {
+    async $getSession(providerId: string, scopes: string[], extensionId: string, extensionName: string,
+                      options: { createIfNone: boolean, clearSessionPreference: boolean }): Promise<AuthenticationSession | undefined> {
+        const orderedScopes = scopes.sort().join(' ');
+        const sessions = (await this.authenticationService.getSessions(providerId)).filter(session => session.scopes.slice().sort().join(' ') === orderedScopes);
+        const label = this.authenticationService.getLabel(providerId);
+
+        if (sessions.length) {
+            if (!this.authenticationService.supportsMultipleAccounts(providerId)) {
+                const session = sessions[0];
+                const allowed = await this.getSessionsPrompt(providerId, session.account.label, label, extensionId, extensionName);
+                if (allowed) {
+                    return session;
+                } else {
+                    throw new Error('User did not consent to login.');
+                }
+            }
+
+            // On renderer side, confirm consent, ask user to choose between accounts if multiple sessions are valid
+            const selected = await this.selectSession(providerId, label, extensionId, extensionName, sessions, scopes, !!options.clearSessionPreference);
+            return sessions.find(session => session.id === selected.id);
+        } else {
+            if (options.createIfNone) {
+                const isAllowed = await this.loginPrompt(label, extensionName);
+                if (!isAllowed) {
+                    throw new Error('User did not consent to login.');
+                }
+
+                const session = await this.authenticationService.login(providerId, scopes);
+                await this.setTrustedExtensionAndAccountPreference(providerId, session.account.label, extensionId, extensionName, session.id);
+                return session;
+            } else {
+                await this.requestNewSession(providerId, scopes, extensionId, extensionName);
+                return undefined;
+            }
+        }
+    }
+
+    protected async selectSession(providerId: string, providerName: string, extensionId: string, extensionName: string,
+                        potentialSessions: AuthenticationSession[], scopes: string[], clearSessionPreference: boolean): Promise<AuthenticationSession> {
         if (!potentialSessions.length) {
             throw new Error('No potential sessions found');
         }
@@ -97,7 +134,7 @@ export class AuthenticationMainImpl implements AuthenticationMain {
             if (existingSessionPreference) {
                 const matchingSession = potentialSessions.find(session => session.id === existingSessionPreference);
                 if (matchingSession) {
-                    const allowed = await this.$getSessionsPrompt(providerId, matchingSession.account.label, providerName, extensionId, extensionName);
+                    const allowed = await this.getSessionsPrompt(providerId, matchingSession.account.label, providerName, extensionId, extensionName);
                     if (allowed) {
                         return matchingSession;
                     }
@@ -139,7 +176,7 @@ export class AuthenticationMainImpl implements AuthenticationMain {
         });
     }
 
-    async $getSessionsPrompt(providerId: string, accountName: string, providerName: string, extensionId: string, extensionName: string): Promise<boolean> {
+    protected async getSessionsPrompt(providerId: string, accountName: string, providerName: string, extensionId: string, extensionName: string): Promise<boolean> {
         const allowList = await readAllowedExtensions(this.storageService, providerId, accountName);
         const extensionData = allowList.find(extension => extension.id === extensionId);
         if (extensionData) {
@@ -158,12 +195,12 @@ export class AuthenticationMainImpl implements AuthenticationMain {
         return allow;
     }
 
-    async $loginPrompt(providerName: string, extensionName: string): Promise<boolean> {
+    protected async loginPrompt(providerName: string, extensionName: string): Promise<boolean> {
         const choice = await this.messageService.info(`The extension '${extensionName}' wants to sign in using ${providerName}.`, 'Allow', 'Cancel');
         return choice === 'Allow';
     }
 
-    async $setTrustedExtensionAndAccountPreference(providerId: string, accountName: string, extensionId: string, extensionName: string, sessionId: string): Promise<void> {
+    protected async setTrustedExtensionAndAccountPreference(providerId: string, accountName: string, extensionId: string, extensionName: string, sessionId: string): Promise<void> {
         const allowList = await readAllowedExtensions(this.storageService, providerId, accountName);
         if (!allowList.find(allowed => allowed.id === extensionId)) {
             allowList.push({ id: extensionId, name: extensionName });

@@ -216,7 +216,8 @@ export class AuthenticationServiceImpl implements AuthenticationService {
             this.authenticationProviders.delete(id);
             this.onDidUnregisterAuthenticationProviderEmitter.fire({ id, label: provider.label });
             this.updateAccountsMenuItem();
-            console.log(`An authentication provider with id '${id}' was unregistered.`);
+        } else {
+            console.error(`Failed to unregister an authentication provider. A provider with id '${id}' was not found.`);
         }
     }
 
@@ -230,6 +231,8 @@ export class AuthenticationServiceImpl implements AuthenticationService {
             if (event.added) {
                 await this.updateNewSessionRequests(provider);
             }
+        } else {
+            console.error(`Failed to update an authentication session. An authentication provider with id '${id}' was not found.`);
         }
     }
 
@@ -346,7 +349,7 @@ export class AuthenticationServiceImpl implements AuthenticationService {
     async getSessions(id: string): Promise<ReadonlyArray<AuthenticationSession>> {
         const authProvider = this.authenticationProviders.get(id);
         if (authProvider) {
-            return await authProvider.getSessions();
+            return authProvider.getSessions();
         } else {
             throw new Error(`No authentication provider '${id}' is currently registered.`);
         }

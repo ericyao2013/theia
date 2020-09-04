@@ -29,7 +29,7 @@ import {
 import { RPCProtocol } from '../common/rpc-protocol';
 import { Emitter, Event } from '@theia/core/lib/common/event';
 import * as theia from '@theia/plugin';
-import { AuthenticationSessionsChangeEvent } from '../common/plugin-api-rpc-model';
+import { AuthenticationSession, AuthenticationSessionsChangeEvent } from '../common/plugin-api-rpc-model';
 
 export class AuthenticationExtImpl implements AuthenticationExt {
     private proxy: AuthenticationMain;
@@ -65,55 +65,14 @@ export class AuthenticationExtImpl implements AuthenticationExt {
                      options: theia.AuthenticationGetSessionOptions & { createIfNone: true }): Promise<theia.AuthenticationSession>;
     async getSession(requestingExtension: InternalPlugin, providerId: string, scopes: string[],
                      options: theia.AuthenticationGetSessionOptions = {}): Promise<theia.AuthenticationSession | undefined> {
-        const provider = this.authenticationProviders.get(providerId);
         const extensionName = requestingExtension.model.displayName || requestingExtension.model.name;
         const extensionId = requestingExtension.model.id.toLowerCase();
 
-        if (!provider) {
-            throw new Error(`An authentication provider with id '${providerId}' was not found.`);
-        }
-
-        const orderedScopes = scopes.sort().join(' ');
-        const sessions = (await provider.getSessions()).filter(s => s.scopes.slice().sort().join(' ') === orderedScopes);
-
-        if (sessions.length > 0) {
-            if (!provider.supportsMultipleAccounts) {
-                const session = sessions[0];
-                const allowed = await this.proxy.$getSessionsPrompt(providerId, session.account.label, provider.label, extensionId, extensionName);
-                if (allowed) {
-                    return session;
-                } else {
-                    throw new Error('User did not consent to login.');
-                }
-            }
-
-            // On renderer side, confirm consent, ask user to choose between accounts if multiple sessions are valid
-            const selected = await this.proxy.$selectSession(providerId, provider.label, extensionId, extensionName, sessions, scopes, !!options.clearSessionPreference);
-            return sessions.find(session => session.id === selected.id);
-        } else {
-            if (options.createIfNone) {
-                const isAllowed = await this.proxy.$loginPrompt(provider.label, extensionName);
-                if (!isAllowed) {
-                    throw new Error('User did not consent to login.');
-                }
-
-                const session = await provider.login(scopes);
-                await this.proxy.$setTrustedExtensionAndAccountPreference(providerId, session.account.label, extensionId, extensionName, session.id);
-                return session;
-            } else {
-                await this.proxy.$requestNewSession(providerId, scopes, extensionId, extensionName);
-                return undefined;
-            }
-        }
+        return this.proxy.$getSession(providerId, scopes, extensionId, extensionName, options);
     }
 
     async logout(providerId: string, sessionId: string): Promise<void> {
-        const provider = this.authenticationProviders.get(providerId);
-        if (!provider) {
-            return this.proxy.$logout(providerId, sessionId);
-        }
-
-        return provider.logout(sessionId);
+        return this.proxy.$logout(providerId, sessionId);
     }
 
     registerAuthenticationProvider(provider: theia.AuthenticationProvider): theia.Disposable {
@@ -156,7 +115,7 @@ export class AuthenticationExtImpl implements AuthenticationExt {
         });
     }
 
-    $login(providerId: string, scopes: string[]): Promise<theia.AuthenticationSession> {
+    $login(providerId: string, scopes: string[]): Promise<AuthenticationSession> {
         const authProvider = this.authenticationProviders.get(providerId);
         if (authProvider) {
             return Promise.resolve(authProvider.login(scopes));
@@ -174,10 +133,26 @@ export class AuthenticationExtImpl implements AuthenticationExt {
         throw new Error(`Unable to find authentication provider with handle: ${providerId}`);
     }
 
-    $getSessions(providerId: string): Promise<ReadonlyArray<theia.AuthenticationSession>> {
+    async $getSessions(providerId: string): Promise<ReadonlyArray<AuthenticationSession>> {
         const authProvider = this.authenticationProviders.get(providerId);
         if (authProvider) {
-            return Promise.resolve(authProvider.getSessions());
+            const sessions = await authProvider.getSessions();
+
+            /* Wrap the session object received from the plugin to prevent serialization mismatches
+            e.g. if the plugin object is constructed with the help of getters they won't be serialized:
+            class SessionImpl implements AuthenticationSession {
+                private _id;
+                get id() {
+                    return _id;
+                }
+            ...
+            } will translate to JSON as { _id: '<sessionid>' } not { id: '<sessionid>' } */
+            return sessions.map(session => ({
+                id: session.id,
+                accessToken: session.accessToken,
+                account: { id: session.account.id, label: session.account.label },
+                scopes: session.scopes
+            }));
         }
 
         throw new Error(`Unable to find authentication provider with handle: ${providerId}`);
