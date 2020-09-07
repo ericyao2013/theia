@@ -29,7 +29,6 @@ import {
 @injectable()
 export class TimelineService {
     private readonly providers = new Map<string, TimelineProvider>();
-    private readonly providerSubscriptions = new Map<string, Disposable>();
 
     private readonly onDidChangeProvidersEmitter = new Emitter<TimelineProvidersChangeEvent>();
     readonly onDidChangeProviders: Event<TimelineProvidersChangeEvent> = this.onDidChangeProvidersEmitter.event;
@@ -42,7 +41,7 @@ export class TimelineService {
 
         this.providers.set(id, provider);
         if (provider.onDidChange) {
-            this.providerSubscriptions.set(id, provider.onDidChange(e => this.onDidChangeTimelineEmitter.fire(e)));
+            provider.onDidChange(e => this.onDidChangeTimelineEmitter.fire(e));
         }
         this.onDidChangeProvidersEmitter.fire({ added: [id] });
 
@@ -50,13 +49,12 @@ export class TimelineService {
     }
 
     unregisterTimelineProvider(id: string): void {
-        if (!this.providers.has(id)) {
-            return;
+        const provider = this.providers.get(id);
+        if (provider) {
+            provider.dispose();
+            this.providers.delete(id);
+            this.onDidChangeProvidersEmitter.fire({ removed: [id] });
         }
-
-        this.providers.delete(id);
-        this.providerSubscriptions.delete(id);
-        this.onDidChangeProvidersEmitter.fire({ removed: [id] });
     }
 
     getSources(): TimelineSource[] {

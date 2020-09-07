@@ -14,11 +14,11 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  ********************************************************************************/
 
-import { injectable } from 'inversify';
+import { inject, injectable } from 'inversify';
 import {
     CompositeTreeNode,
     SelectableTreeNode,
-    TreeModelImpl,
+    TreeModelImpl, TreeSelectionService,
 } from '@theia/core/lib/browser/tree';
 import { TimelineItem } from '../common/timeline-model';
 import { TimelineContribution } from './timeline-contribution';
@@ -29,6 +29,8 @@ export interface TimelineNode extends SelectableTreeNode {
 
 @injectable()
 export class TimelineTreeModel extends TreeModelImpl {
+
+    @inject(TreeSelectionService) protected readonly selectionService: TreeSelectionService;
 
     updateTree(items: TimelineItem[], hasMoreItems: boolean): void {
         const root = {
@@ -47,17 +49,22 @@ export class TimelineTreeModel extends TreeModelImpl {
                 visible: true
             } as TimelineNode)
         );
+        let loadMore;
         if (hasMoreItems) {
             const loadMoreNode: TimelineItem = { label: 'Load-more', timestamp: 0, handle: '', uri: '', source: '' };
             loadMoreNode.command = TimelineContribution.LOAD_MORE_COMMAND;
-            children.push({
+            loadMore = {
                 timelineItem: loadMoreNode,
                 id: 'load-more',
                 parent: root,
                 selected: true
-            });
+            } as TimelineNode;
+            children.push(loadMore);
         }
         root.children = children;
         this.root = root;
+        if (loadMore) {
+            this.selectionService.addSelection(loadMore);
+        }
     }
 }
