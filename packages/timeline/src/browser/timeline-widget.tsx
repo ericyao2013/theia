@@ -28,7 +28,7 @@ import {
 } from '@theia/core/lib/browser';
 import { TimelineTreeWidget } from './timeline-tree-widget';
 import { TimelineService } from './timeline-service';
-import { CommandRegistry } from '@theia/core/lib/common';
+import { CommandRegistry, SelectionService } from '@theia/core/lib/common';
 import { TimelineEmptyWidget } from './timeline-empty-widget';
 import { toArray } from '@phosphor/algorithm';
 import URI from '@theia/core/lib/common/uri';
@@ -48,6 +48,7 @@ export class TimelineWidget extends BaseWidget {
     @inject(CommandRegistry) protected readonly commandRegistry: CommandRegistry;
     @inject(ApplicationShell) protected readonly applicationShell: ApplicationShell;
     @inject(TimelineEmptyWidget) protected readonly timelineEmptyWidget: TimelineEmptyWidget;
+    @inject(SelectionService) protected readonly selectionService: SelectionService;
 
     constructor() {
         super();
@@ -75,8 +76,18 @@ export class TimelineWidget extends BaseWidget {
                 }
             })
         );
+        this.toDispose.push(this.selectionService.onSelectionChanged(selection => {
+            if (Array.isArray(selection) && 'uri' in selection[0]) {
+                this.refresh(selection[0].uri);
+            }
+        }));
         this.toDispose.push(this.applicationShell.onDidChangeCurrentWidget(async e => {
             if ((e.newValue && Navigatable.is(e.newValue)) || !this.suitableWidgetsOpened()) {
+                this.refresh();
+            }
+        }));
+        this.toDispose.push(this.applicationShell.onDidRemoveWidget(widget => {
+            if (NavigatableWidget.is(widget)) {
                 this.refresh();
             }
         }));
@@ -112,8 +123,10 @@ export class TimelineWidget extends BaseWidget {
         }
     }
 
-    refresh(): void {
-        const uri = this.getCurrentWidgetUri();
+    refresh(uri?: URI): void {
+        if (!uri) {
+            uri = this.getCurrentWidgetUri();
+        }
         if (uri) {
             this.timelineEmptyWidget.hide();
             this.resourceWidget.show();

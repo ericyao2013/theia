@@ -78,20 +78,9 @@ export class TimelineContribution implements CommandContribution, TabBarToolbarC
                 }
             }
         });
-        let navigableId: string;
-        this.shell.onDidChangeCurrentWidget(event => {
-            const oldValue = event.oldValue;
-            if (oldValue && Navigatable.is(oldValue)) {
-                navigableId = oldValue.id;
-            }
-        });
         commands.registerCommand(TimelineContribution.LOAD_MORE_COMMAND, {
             execute: async () => {
-                let navigable;
-                if (!navigableId) {
-                    navigable = toArray(this.shell.mainPanel.widgets()).find(w => Navigatable.is(w) && w.isVisible && !w.isHidden);
-                }
-                const widget = this.shell.getWidgetById(navigableId) || navigable;
+                const widget = toArray(this.shell.mainPanel.widgets()).find(w => Navigatable.is(w) && w.isVisible && !w.isHidden);
                 if (Navigatable.is(widget)) {
                     const uri = widget.getResourceUri();
                     const timeline = await this.widgetManager.getWidget<TimelineWidget>(TimelineWidget.ID);
